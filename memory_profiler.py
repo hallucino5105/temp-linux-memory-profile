@@ -38,7 +38,7 @@ class MemoryProfileThread(threading.Thread):
             spids = " ".join([ str(t) for t in target_pids ])
             raise RuntimeError("Duplicate process: %s" % spids)
 
-        return target_pids[0]
+        return int(target_pids[0])
 
     def __init__(self, pid=-1, procname=None, interval=1):
         super(MemoryProfileThread, self).__init__()
@@ -53,10 +53,13 @@ class MemoryProfileThread(threading.Thread):
             self.pid = MemoryProfileThread.findPid(procname)
 
         elif pid != -1:
-            self.pid = pid
+            self.pid = int(pid)
 
     def run(self):
         while True:
+            with open("/proc/%/stats", "r") as f:
+                print f.readlines()
+
             time.sleep(self.interval)
 
 
