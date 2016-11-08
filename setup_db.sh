@@ -8,4 +8,3 @@ mysql -uroot -e "create user if not exists nobody@'%'"
 mysql -uroot -e "grant all privileges on *.* to nobody@'%'"
 mysql -uroot -e "set password for nobody@'%' = 'nobody123'"
 
-mysql -uroot -e "create database if not exists tpcc"

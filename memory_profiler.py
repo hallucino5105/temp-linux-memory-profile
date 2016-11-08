@@ -15,10 +15,14 @@ import csv
 
 
 class MemoryProfileThread(threading.Thread):
-    MonitorItems = [
+    MonitorSystemItems = (
+        "MemTotal", "MemFree", "MemAvailable", "SwapTotal", "SwapFree",
+    )
+
+    MonitorProcItems = (
         "VmPeak", "VmSize", "VmLck", "VmPin", "VmHWM", "VmRSS",
         "VmData", "VmStk", "VmExe", "VmLib", "VmPTE", "VmSwap",
-    ]
+    )
 
     @staticmethod
     def findPid(procname):
@@ -49,10 +53,11 @@ class MemoryProfileThread(threading.Thread):
 
         return int(target_pids[0])
 
-    def __init__(self, pid=-1, procname=None, output_path=None, interval=1):
+    def __init__(self, lock, pid=-1, procname=None, output_path=None, interval=1):
         super(MemoryProfileThread, self).__init__()
 
         self.daemon = True
+        self.lock = lock
         self.interval = interval
 
         if pid == -1 and procname == None:
@@ -83,7 +88,8 @@ class MemoryProfileThread(threading.Thread):
         else:
             value = int(value_temp1)
 
-        print "%d %6s %d" % (unixtime, label, value)
+        with self.lock:
+            print "%d %s %d" % (unixtime, label, value)
 
         return {
             "time": unixtime,
@@ -91,14 +97,13 @@ class MemoryProfileThread(threading.Thread):
             "value": value,
         }
 
-    def getMonitorItems(self):
+    def getMonitorItems(self, unixtime, procfile, monitor_items):
         find_items = []
-        unixtime = int(time.mktime(datetime.datetime.now().timetuple()))
 
-        with open("/proc/%d/status" % self.pid, "r") as f:
+        with open(procfile, "r") as f:
             lines = f.readlines()
             for line in lines:
-                for mi in MemoryProfileThread.MonitorItems:
+                for mi in monitor_items:
                     if line.find(mi) == 0:
                         find_items.append(self.formatLine(line, unixtime))
 
@@ -113,8 +118,22 @@ class MemoryProfileThread(threading.Thread):
             writer = csv.writer(f, lineterminator="\n")
 
             while True:
-                data = self.getMonitorItems()
-                self.outputData(writer, data)
+                unixtime = int(time.mktime(datetime.datetime.now().timetuple()))
+
+                data_system = self.getMonitorItems(
+                    unixtime=unixtime,
+                    procfile="/proc/meminfo",
+                    monitor_items=MemoryProfileThread.MonitorSystemItems)
+
+                data_proc = self.getMonitorItems(
+                    unixtime=unixtime,
+                    procfile="/proc/%d/status" % self.pid,
+                    monitor_items=MemoryProfileThread.MonitorProcItems)
+
+                self.outputData(writer, data_system + data_proc)
+
+                with self.lock:
+                    print
 
                 time.sleep(self.interval)
 
@@ -122,7 +141,8 @@ class MemoryProfileThread(threading.Thread):
 def main():
     procname = sys.argv[1]
 
-    t = MemoryProfileThread(procname=procname)
+    lock = threading.Lock()
+    t = MemoryProfileThread(lock, procname=procname)
     t.start()
 
     while True:
