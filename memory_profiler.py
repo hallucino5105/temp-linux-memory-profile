@@ -108,6 +108,7 @@ class MemoryProfileThread(mp.Process):
 
         return {
             "time": unixtime,
+
             "label": label,
             "value": value,
         }
@@ -128,10 +129,10 @@ class MemoryProfileThread(mp.Process):
         for item in data:
             with self.lock:
                 if isinstance(item["value"], int):
-                    fmt = "%d %s %d"
+                    fmt = "%d %s %d\n"
                 else:
-                    fmt = "%d %s \"%s\""
-                print fmt % (item["time"], item["label"], item["value"])
+                    fmt = "%d %s \"%s\"\n"
+                sys.stdout.write(fmt % (item["time"], item["label"], item["value"]))
 
             writer.writerow([ item["time"], item["label"], item["value"] ])
             fs.flush()
@@ -167,7 +168,7 @@ class MemoryProfileThread(mp.Process):
                 self.outputData(fs, writer, data_ident + data_system + data_proc)
 
                 with self.lock:
-                    print
+                    sys.stdout.write("\n")
 
                 time.sleep(self.interval)
 
@@ -186,19 +187,20 @@ def remoteTask(remote_cmd):
     run(remote_cmd)
 
 
-def remote(procname, pid, remote_host, remote_dir):
+def remote(procname, pid, data_dir, remote_host, remote_dir):
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
     env.host_string = remote_host
 
     cwd, project_exec = os.path.split(os.path.abspath(sys.argv[0]))
 
-    remote_cmd = "python %s/%s/%s -p %s -P %d" % (
+    remote_cmd = "python %s/%s/%s -p %s -P %d -d %s" % (
         remote_dir,
         cwd.split("/")[-1],
         project_exec,
         procname,
-        pid)
+        pid,
+        data_dir)
 
     project.rsync_project(
         local_dir=cwd,
