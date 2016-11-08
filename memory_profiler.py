@@ -10,10 +10,8 @@ import multiprocessing as mp
 import re
 import time
 import datetime
-import pandas as pd
-import numpy as np
 import csv
-from fabric.api import run,execute,env
+from fabric.api import run, execute, env
 
 
 class MemoryProfileThread(mp.Process):
