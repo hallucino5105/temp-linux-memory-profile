@@ -181,10 +181,9 @@ def logging(procname, pid):
         t.join(1)
 
 
-def remoteTask(procname, pid, remote_cmd):
+def remoteTask(remote_cmd):
     log.info("remoteTask")
-
-    #run("python ~/linux-memory-profile/memory_profiler.py")
+    run(remote_cmd)
 
 
 def connect(procname, pid, remote_host, remote_dir):
@@ -201,14 +200,12 @@ def connect(procname, pid, remote_host, remote_dir):
         procname,
         pid)
 
-    print remote_cmd
-
     project.rsync_project(
         local_dir=cwd,
         remote_dir=remote_dir,
         exclude=[ "*.pyc", "*~", "*.swp", ".git*" ])
 
-    execute(remoteTask, procname, pid, remote_cmd)
+    execute(remoteTask, remote_cmd)
 
     log.info("done")
 
