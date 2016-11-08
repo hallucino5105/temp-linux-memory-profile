@@ -65,7 +65,7 @@ class MemoryProfileThread(threading.Thread):
             self.pid = int(pid)
 
         if not output_path:
-            self.output_path = "./mprof_%s_%s.csv" % (
+            self.output_path = "./data/mprof_%s_%s.csv" % (
                 procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     def formatLine(self, line, unixtime):
