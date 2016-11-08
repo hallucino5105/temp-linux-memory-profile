@@ -190,7 +190,7 @@ def connect(procname, pid, remote_host):
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
 
-    project.rsync_project(remote_dir="~", exclude=["*.pyc", "*~", "*.swp"])
+    project.rsync_project(remote_dir="~", exclude=["*.pyc", "*~", "*.swp", ".git*"])
     #execute(remoteTask)
 
     log.info("done")
