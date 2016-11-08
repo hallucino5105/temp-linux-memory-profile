@@ -13,6 +13,7 @@ import datetime
 import pandas as pd
 import numpy as np
 import csv
+from fabric.api import run,execute,env
 
 
 class MemoryProfileThread(mp.Process):
@@ -44,10 +45,14 @@ class MemoryProfileThread(mp.Process):
                 continue
 
         # to remove pid myself
-        target_pids.remove(os.getpid())
+        try:
+            mypid = os.getpid()
+            target_pids.remove(mypid)
+        except ValueError:
+            pass
 
         if len(target_pids) == 0:
-            raise RuntimeError("Not found target process")
+            raise RuntimeError("Not found target process \"%s\"" % procname)
 
         elif len(target_pids) >= 2:
             spids = " ".join([ str(t) for t in target_pids ])
@@ -76,6 +81,10 @@ class MemoryProfileThread(mp.Process):
         if not output_path:
             self.output_path = "./data/mprof_%s_%s.csv" % (
                 self.procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+            output_dir = os.path.dirname(self.output_path)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
 
     def formatLine(self, line, unixtime):
         _line = line \
@@ -157,9 +166,7 @@ class MemoryProfileThread(mp.Process):
                 time.sleep(self.interval)
 
 
-def main():
-    procname = sys.argv[1]
-
+def logging(procname):
     lock = mp.Lock()
     t = MemoryProfileThread(lock, procname=procname)
     t.start()
@@ -168,12 +175,33 @@ def main():
         t.join(1)
 
 
+def task():
+    print "task"
+
+
+def connect():
+    hostname = "192.168.5.51"
+    username = "hoshino"
+    password = ""
+
+    execute(task, hosts=( hostname, ))
+    print('done')
+
+
+def main():
+    procname = sys.argv[1]
+    print "start logging \"%s\"" % procname
+
+    logging(procname)
+
+
 if __name__ == "__main__":
     log.basicConfig(
         format="[%(asctime)s][%(levelname)s] %(message)s",
         datefmt="%Y/%m/%d %H:%M:%S",
         level=log.DEBUG)
 
-    main()
+    #main()
+    connect()
 
 
