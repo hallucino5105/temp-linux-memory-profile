@@ -12,6 +12,7 @@ import time
 import datetime
 import csv
 from fabric.api import run, execute, env
+from fabric.contrib import project
 
 
 class MemoryProfileThread(mp.Process):
@@ -58,31 +59,38 @@ class MemoryProfileThread(mp.Process):
 
         return int(target_pids[0])
 
-    def __init__(self, lock, tpid=-1, procname=None, output_path=None, interval=1):
+    def __init__(self, lock, pid=-1, procname=None, output_path=None, interval=1):
         super(MemoryProfileThread, self).__init__()
 
         self.daemon = True
         self.lock = lock
         self.interval = interval
-        self.procname = "None"
 
-        if tpid == -1 and procname == None:
-            raise RuntimeError("Illegal pid or procname")
+        self.setPID(pid, procname)
+        self.setOutputPath(output_path)
 
-        elif tpid == -1 and procname != None:
+    def setPID(self, pid, procname):
+        if pid == -1 and procname == None:
+            raise RuntimeError("No pid or procname found")
+
+        elif pid == -1 and procname != None:
             self.procname = procname
             self.tpid = MemoryProfileThread.findPid(procname)
 
-        elif tpid != -1:
-            self.tpid = int(tpid)
+        elif pid != -1:
+            self.tpid = int(pid)
 
+        if not self.procname:
+            self.procname = "None"
+
+    def setOutputPath(self, output_path):
         if not output_path:
-            self.output_path = "./data/mprof_%s_%s.csv" % (
+            self.output_path = "./mprof_data/mprof_%s_%s.csv" % (
                 self.procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
-            output_dir = os.path.dirname(self.output_path)
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            self.output_dir = os.path.dirname(self.output_path)
+            if not os.path.exists(self.output_dir):
+                os.makedirs(self.output_dir)
 
     def formatLine(self, line, unixtime):
         _line = line \
@@ -164,9 +172,9 @@ class MemoryProfileThread(mp.Process):
                 time.sleep(self.interval)
 
 
-def logging(procname):
+def logging(procname, pid):
     lock = mp.Lock()
-    t = MemoryProfileThread(lock, procname=procname)
+    t = MemoryProfileThread(lock, procname=procname, pid=pid)
     t.start()
 
     while True:
@@ -174,23 +182,39 @@ def logging(procname):
 
 
 def task():
-    print "task"
+    #logging("mysqld")
+    run("python ~/linux-memory-profile/memory_profiler.py mysqld")
 
 
 def connect():
-    hostname = "192.168.5.51"
-    username = "hoshino"
-    password = ""
+    env.use_ssh_config = True
+    env.user = "hoshino"
+    env.hosts = [ "mysqltest" ]
 
-    execute(task, hosts=( hostname, ))
-    print('done')
+    project.rsync_project(remote_dir="~", exclude=["*.pyc", "*~", "*.swp"])
+    execute(task)
+
+    print("done")
+
+
+def parsearg():
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+
+    parser.add_argument("-p", "--procname", type=str, default=None, help="process name")
+    parser.add_argument("-P", "--pid", type=int, default=-1, help="process id")
+    parser.add_argument("-r", "--remote", action="store_true", help="remote")
+    parser.add_argument("--help", action="help")
+
+    args = parser.parse_args()
+    return args
 
 
 def main():
-    procname = sys.argv[1]
-    print "start logging \"%s\"" % procname
+    args = parsearg()
 
-    logging(procname)
+    print "start logging \"%s (%d)\"" % (args.procname, args.pid)
+    logging(args.procname, args.pid)
 
 
 if __name__ == "__main__":
@@ -199,7 +223,6 @@ if __name__ == "__main__":
         datefmt="%Y/%m/%d %H:%M:%S",
         level=log.DEBUG)
 
-    #main()
-    connect()
+    main()
 
 
