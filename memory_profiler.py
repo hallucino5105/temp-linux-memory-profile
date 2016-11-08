@@ -59,15 +59,16 @@ class MemoryProfileThread(mp.Process):
 
         return int(target_pids[0])
 
-    def __init__(self, lock, pid=-1, procname=None, output_path=None, interval=1):
+    def __init__(self, lock, pid=-1, procname=None, data_dir=None, interval=1):
         super(MemoryProfileThread, self).__init__()
 
         self.daemon = True
         self.lock = lock
         self.interval = interval
+        self.data_dir = data_dir
 
         self.setPID(pid, procname)
-        self.setOutputPath(output_path)
+        self.setDataPath()
 
     def setPID(self, pid, procname):
         if pid == -1 and procname == None:
@@ -83,14 +84,12 @@ class MemoryProfileThread(mp.Process):
         if not self.procname:
             self.procname = "None"
 
-    def setOutputPath(self, output_path):
-        if not output_path:
-            self.output_path = "./mprof_data/mprof_%s_%s.csv" % (
-                self.procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    def setDataPath(self):
+        self.data_path = "%s/mprof_%s_%s.csv" % (
+            self.data_dir, self.procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
-            self.output_dir = os.path.dirname(self.output_path)
-            if not os.path.exists(self.output_dir):
-                os.makedirs(self.output_dir)
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
 
     def formatLine(self, line, unixtime):
         _line = line \
@@ -138,7 +137,7 @@ class MemoryProfileThread(mp.Process):
             fs.flush()
 
     def run(self):
-        with open(self.output_path, "w") as fs:
+        with open(self.data_path, "w") as fs:
             writer = csv.writer(fs, lineterminator="\n")
 
             while True:
@@ -173,9 +172,9 @@ class MemoryProfileThread(mp.Process):
                 time.sleep(self.interval)
 
 
-def logging(procname, pid):
+def logging(procname, pid, data_dir):
     lock = mp.Lock()
-    t = MemoryProfileThread(lock, procname=procname, pid=pid)
+    t = MemoryProfileThread(lock, procname=procname, pid=pid, data_dir=data_dir)
     t.start()
 
     while True:
@@ -187,7 +186,7 @@ def remoteTask(remote_cmd):
     run(remote_cmd)
 
 
-def connect(procname, pid, remote_host, remote_dir):
+def remote(procname, pid, remote_host, remote_dir):
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
     env.host_string = remote_host
@@ -217,9 +216,10 @@ def getarg():
 
     parser.add_argument("-p", "--procname", type=str, default=None, help="process name")
     parser.add_argument("-P", "--pid", type=int, default=-1, help="process id")
+    parser.add_argument("-d", "--data-dir", type=str, default="mprof_data", help="data dir")
     parser.add_argument("-r", "--enable-remote", action="store_true", help="enable remote")
     parser.add_argument("-h", "--remote-host", type=str, help="remote host")
-    parser.add_argument("-d", "--remote-dir", type=str, default="~", help="remote dir")
+    parser.add_argument("-t", "--remote-dir", type=str, default="~", help="remote dir")
     parser.add_argument("--help", action="help")
 
     args = parser.parse_args()
@@ -232,11 +232,11 @@ def main():
     log.info("start logging \"%s (%d)\"" % (args.procname, args.pid))
 
     if not args.enable_remote:
-        logging(args.procname, args.pid)
+        logging(args.procname, args.pid, args.data_dir)
 
     else:
         log.info("connecting remote host \"%s\"" % args.remote_host)
-        connect(args.procname, args.pid, args.remote_host, args.remote_dir)
+        remote(args.procname, args.pid, args.data_dir, args.remote_host, args.remote_dir)
 
 
 if __name__ == "__main__":
