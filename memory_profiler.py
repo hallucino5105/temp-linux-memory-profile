@@ -6,6 +6,7 @@ import sys
 import os
 import logging as log
 import threading
+import multiprocessing as mp
 import re
 import time
 import datetime
@@ -14,14 +15,15 @@ import numpy as np
 import csv
 
 
-class MemoryProfileThread(threading.Thread):
+class MemoryProfileThread(mp.Process):
     MonitorSystemItems = (
         "MemTotal", "MemFree", "MemAvailable", "SwapTotal", "SwapFree",
     )
 
     MonitorProcItems = (
-        "VmPeak", "VmSize", "VmLck", "VmPin", "VmHWM", "VmRSS",
-        "VmData", "VmStk", "VmExe", "VmLib", "VmPTE", "VmSwap",
+        "VmPeak", "VmSize", "VmLck", "VmPin", "VmHWM",
+        "VmRSS", "VmData", "VmStk", "VmExe", "VmLib",
+        "VmPTE", "VmSwap",
     )
 
     @staticmethod
@@ -53,25 +55,27 @@ class MemoryProfileThread(threading.Thread):
 
         return int(target_pids[0])
 
-    def __init__(self, lock, pid=-1, procname=None, output_path=None, interval=1):
+    def __init__(self, lock, tpid=-1, procname=None, output_path=None, interval=1):
         super(MemoryProfileThread, self).__init__()
 
         self.daemon = True
         self.lock = lock
         self.interval = interval
+        self.procname = "None"
 
-        if pid == -1 and procname == None:
+        if tpid == -1 and procname == None:
             raise RuntimeError("Illegal pid or procname")
 
-        elif pid == -1 and procname != None:
-            self.pid = MemoryProfileThread.findPid(procname)
+        elif tpid == -1 and procname != None:
+            self.procname = procname
+            self.tpid = MemoryProfileThread.findPid(procname)
 
-        elif pid != -1:
-            self.pid = int(pid)
+        elif tpid != -1:
+            self.tpid = int(tpid)
 
         if not output_path:
             self.output_path = "./data/mprof_%s_%s.csv" % (
-                procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+                self.procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     def formatLine(self, line, unixtime):
         _line = line \
@@ -87,9 +91,6 @@ class MemoryProfileThread(threading.Thread):
             value = int(value_temp2) * 1024
         else:
             value = int(value_temp1)
-
-        with self.lock:
-            print "%d %s %d" % (unixtime, label, value)
 
         return {
             "time": unixtime,
@@ -111,6 +112,13 @@ class MemoryProfileThread(threading.Thread):
 
     def outputData(self, writer, data):
         for item in data:
+            with self.lock:
+                if isinstance(item["value"], int):
+                    fmt = "%d %s %d"
+                else:
+                    fmt = "%d %s \"%s\""
+                print fmt % (item["time"], item["label"], item["value"])
+
             writer.writerow([ item["time"], item["label"], item["value"] ])
 
     def run(self):
@@ -120,6 +128,17 @@ class MemoryProfileThread(threading.Thread):
             while True:
                 unixtime = int(time.mktime(datetime.datetime.now().timetuple()))
 
+
+                data_ident = [{
+                    "time": unixtime,
+                    "label": "PID",
+                    "value": self.tpid
+                }, {
+                    "time": unixtime,
+                    "label": "ProcName",
+                    "value": self.procname,
+                }]
+
                 data_system = self.getMonitorItems(
                     unixtime=unixtime,
                     procfile="/proc/meminfo",
@@ -127,10 +146,10 @@ class MemoryProfileThread(threading.Thread):
 
                 data_proc = self.getMonitorItems(
                     unixtime=unixtime,
-                    procfile="/proc/%d/status" % self.pid,
+                    procfile="/proc/%d/status" % self.tpid,
                     monitor_items=MemoryProfileThread.MonitorProcItems)
 
-                self.outputData(writer, data_system + data_proc)
+                self.outputData(writer, data_ident + data_system + data_proc)
 
                 with self.lock:
                     print
@@ -141,7 +160,7 @@ class MemoryProfileThread(threading.Thread):
 def main():
     procname = sys.argv[1]
 
-    lock = threading.Lock()
+    lock = mp.Lock()
     t = MemoryProfileThread(lock, procname=procname)
     t.start()
 
