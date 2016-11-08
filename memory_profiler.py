@@ -181,17 +181,34 @@ def logging(procname, pid):
         t.join(1)
 
 
-def remoteTask():
+def remoteTask(procname, pid, remote_cmd):
     log.info("remoteTask")
-    #run("python ~/linux-memory-profile/memory_profiler.py mysqld")
+
+    #run("python ~/linux-memory-profile/memory_profiler.py")
 
 
-def connect(procname, pid, remote_host):
+def connect(procname, pid, remote_host, remote_dir):
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
+    env.host_string = remote_host
 
-    project.rsync_project(remote_dir="~", exclude=["*.pyc", "*~", "*.swp"])
-    #execute(remoteTask)
+    cwd, project_exec = os.path.split(os.path.abspath(sys.argv[0]))
+
+    remote_cmd = "python %s/%s/%s -p %s -P %d" % (
+        remote_dir,
+        cwd.split("/")[-1],
+        project_exec,
+        procname,
+        pid)
+
+    print remote_cmd
+
+    project.rsync_project(
+        local_dir=cwd,
+        remote_dir=remote_dir,
+        exclude=[ "*.pyc", "*~", "*.swp", ".git*" ])
+
+    execute(remoteTask, procname, pid, remote_cmd)
 
     log.info("done")
 
@@ -204,6 +221,7 @@ def getarg():
     parser.add_argument("-P", "--pid", type=int, default=-1, help="process id")
     parser.add_argument("-r", "--enable-remote", action="store_true", help="enable remote")
     parser.add_argument("-h", "--remote-host", type=str, help="remote host")
+    parser.add_argument("-d", "--remote-dir", type=str, default="~", help="remote dir")
     parser.add_argument("--help", action="help")
 
     args = parser.parse_args()
@@ -220,7 +238,7 @@ def main():
 
     else:
         log.info("connecting remote host \"%s\"" % args.remote_host)
-        connect(args.procname, args.pid, args.remote_host)
+        connect(args.procname, args.pid, args.remote_host, args.remote_dir)
 
 
 if __name__ == "__main__":
