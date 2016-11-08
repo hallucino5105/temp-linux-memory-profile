@@ -8,9 +8,18 @@ import logging as log
 import threading
 import re
 import time
+import datetime
+import pandas as pd
+import numpy as np
+import csv
 
 
 class MemoryProfileThread(threading.Thread):
+    MonitorItems = [
+        "VmPeak", "VmSize", "VmLck", "VmPin", "VmHWM", "VmRSS",
+        "VmData", "VmStk", "VmExe", "VmLib", "VmPTE", "VmSwap",
+    ]
+
     @staticmethod
     def findPid(procname):
         pattern = re.compile(procname)
@@ -40,7 +49,7 @@ class MemoryProfileThread(threading.Thread):
 
         return int(target_pids[0])
 
-    def __init__(self, pid=-1, procname=None, interval=1):
+    def __init__(self, pid=-1, procname=None, output_path=None, interval=1):
         super(MemoryProfileThread, self).__init__()
 
         self.daemon = True
@@ -55,12 +64,59 @@ class MemoryProfileThread(threading.Thread):
         elif pid != -1:
             self.pid = int(pid)
 
-    def run(self):
-        while True:
-            with open("/proc/%/stats", "r") as f:
-                print f.readlines()
+        if not output_path:
+            self.output_path = "./mprof_%s_%s.csv" % (
+                procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
-            time.sleep(self.interval)
+    def formatLine(self, line, unixtime):
+        _line = line \
+            .strip() \
+            .replace("\t", "") \
+            .replace(" ", "")
+
+        label, value_temp1 = _line.split(":")
+        value_temp2, unit = value_temp1[:-2], value_temp1[-2:]
+        value = 0
+
+        if unit == "kB":
+            value = int(value_temp2) * 1024
+        else:
+            value = int(value_temp1)
+
+        print "%d %6s %d" % (unixtime, label, value)
+
+        return {
+            "time": unixtime,
+            "label": label,
+            "value": value,
+        }
+
+    def getMonitorItems(self):
+        find_items = []
+        unixtime = int(time.mktime(datetime.datetime.now().timetuple()))
+
+        with open("/proc/%d/status" % self.pid, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                for mi in MemoryProfileThread.MonitorItems:
+                    if line.find(mi) == 0:
+                        find_items.append(self.formatLine(line, unixtime))
+
+        return find_items
+
+    def outputData(self, writer, data):
+        for item in data:
+            writer.writerow([ item["time"], item["label"], item["value"] ])
+
+    def run(self):
+        with open(self.output_path, "w") as f:
+            writer = csv.writer(f, lineterminator="\n")
+
+            while True:
+                data = self.getMonitorItems()
+                self.outputData(writer, data)
+
+                time.sleep(self.interval)
 
 
 def main():
