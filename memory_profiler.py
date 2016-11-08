@@ -181,29 +181,29 @@ def logging(procname, pid):
         t.join(1)
 
 
-def task():
-    #logging("mysqld")
-    run("python ~/linux-memory-profile/memory_profiler.py mysqld")
+def remoteTask():
+    log.info("remoteTask")
+    #run("python ~/linux-memory-profile/memory_profiler.py mysqld")
 
 
-def connect():
+def connect(procname, pid, remote_host):
     env.use_ssh_config = True
-    env.user = "hoshino"
-    env.hosts = [ "mysqltest" ]
+    env.hosts = [ remote_host ]
 
     project.rsync_project(remote_dir="~", exclude=["*.pyc", "*~", "*.swp"])
-    execute(task)
+    #execute(remoteTask)
 
-    print("done")
+    log.info("done")
 
 
-def parsearg():
+def getarg():
     import argparse
     parser = argparse.ArgumentParser(add_help=False)
 
     parser.add_argument("-p", "--procname", type=str, default=None, help="process name")
     parser.add_argument("-P", "--pid", type=int, default=-1, help="process id")
-    parser.add_argument("-r", "--remote", action="store_true", help="remote")
+    parser.add_argument("-r", "--enable-remote", action="store_true", help="enable remote")
+    parser.add_argument("-h", "--remote-host", type=str, help="remote host")
     parser.add_argument("--help", action="help")
 
     args = parser.parse_args()
@@ -211,10 +211,16 @@ def parsearg():
 
 
 def main():
-    args = parsearg()
+    args = getarg()
 
-    print "start logging \"%s (%d)\"" % (args.procname, args.pid)
-    logging(args.procname, args.pid)
+    log.info("start logging \"%s (%d)\"" % (args.procname, args.pid))
+
+    if not args.enable_remote:
+        logging(args.procname, args.pid)
+
+    else:
+        log.info("connecting remote host \"%s\"" % args.remote_host)
+        connect(args.procname, args.pid, args.remote_host)
 
 
 if __name__ == "__main__":
