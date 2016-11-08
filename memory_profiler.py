@@ -125,7 +125,7 @@ class MemoryProfileThread(mp.Process):
 
         return find_items
 
-    def outputData(self, writer, data):
+    def outputData(self, fs, writer, data):
         for item in data:
             with self.lock:
                 if isinstance(item["value"], int):
@@ -135,10 +135,11 @@ class MemoryProfileThread(mp.Process):
                 print fmt % (item["time"], item["label"], item["value"])
 
             writer.writerow([ item["time"], item["label"], item["value"] ])
+            fs.flush()
 
     def run(self):
-        with open(self.output_path, "w") as f:
-            writer = csv.writer(f, lineterminator="\n")
+        with open(self.output_path, "w") as fs:
+            writer = csv.writer(fs, lineterminator="\n")
 
             while True:
                 unixtime = int(time.mktime(datetime.datetime.now().timetuple()))
@@ -164,7 +165,7 @@ class MemoryProfileThread(mp.Process):
                     procfile="/proc/%d/status" % self.tpid,
                     monitor_items=MemoryProfileThread.MonitorProcItems)
 
-                self.outputData(writer, data_ident + data_system + data_proc)
+                self.outputData(fs, writer, data_ident + data_system + data_proc)
 
                 with self.lock:
                     print
