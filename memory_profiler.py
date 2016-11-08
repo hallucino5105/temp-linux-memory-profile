@@ -11,7 +11,7 @@ import re
 import time
 import datetime
 import csv
-from fabric.api import run, execute, env
+from fabric.api import run, local, execute, env
 from fabric.contrib import project
 
 
@@ -59,13 +59,14 @@ class MemoryProfileThread(mp.Process):
 
         return int(target_pids[0])
 
-    def __init__(self, lock, pid=-1, procname=None, data_dir=None, interval=1):
+    def __init__(self, lock, pid=-1, procname=None, data_dir=None, data_filename=None, interval=1):
         super(MemoryProfileThread, self).__init__()
 
         self.daemon = True
         self.lock = lock
         self.interval = interval
         self.data_dir = data_dir
+        self.data_filename = data_filename
 
         self.setPID(pid, procname)
         self.setDataPath()
@@ -85,8 +86,10 @@ class MemoryProfileThread(mp.Process):
             self.procname = "None"
 
     def setDataPath(self):
-        self.data_path = "%s/mprof_%s_%s.csv" % (
-            self.data_dir, self.procname, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        if not self.data_filename:
+            self.data_filename = "mprof_%s.csv" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        self.data_path = "%s/%s" % (self.data_dir, self.data_filename)
 
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
@@ -108,7 +111,6 @@ class MemoryProfileThread(mp.Process):
 
         return {
             "time": unixtime,
-
             "label": label,
             "value": value,
         }
@@ -173,28 +175,40 @@ class MemoryProfileThread(mp.Process):
                 time.sleep(self.interval)
 
 
-def logging(procname, pid, data_dir):
+def logging(procname, pid, data_dir, data_filename):
     lock = mp.Lock()
-    t = MemoryProfileThread(lock, procname=procname, pid=pid, data_dir=data_dir)
+
+    t = MemoryProfileThread(
+        lock,
+        procname=procname,
+        pid=pid,
+        data_dir=data_dir,
+        data_filename=data_filename)
+
     t.start()
 
     while True:
         t.join(1)
 
 
-def remoteTask(remote_cmd):
+def remoteTask(remote_prof_cmd, remote_close_cmd):
     log.info("remoteTask")
-    run(remote_cmd)
+    print remote_prof_cmd
+
+    try:
+        run(remote_prof_cmd)
+    finally:
+        local(remote_close_cmd)
 
 
-def remote(procname, pid, data_dir, remote_host, remote_dir):
+def remote(procname, pid, data_dir, data_filename, remote_host, remote_dir):
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
     env.host_string = remote_host
 
     cwd, project_exec = os.path.split(os.path.abspath(sys.argv[0]))
 
-    remote_cmd = "python %s/%s/%s -p %s -P %d -d %s" % (
+    remote_prof_cmd = "python %s/%s/%s -p %s -P %d -d %s" % (
         remote_dir,
         cwd.split("/")[-1],
         project_exec,
@@ -202,12 +216,17 @@ def remote(procname, pid, data_dir, remote_host, remote_dir):
         pid,
         data_dir)
 
+    remote_close_cmd = "rsync -av %s:%s/%s ." % (
+        remote_host,
+        data_dir,
+        data_filename)
+
     project.rsync_project(
         local_dir=cwd,
         remote_dir=remote_dir,
         exclude=[ "*.pyc", "*~", "*.swp", ".git*" ])
 
-    execute(remoteTask, remote_cmd)
+    execute(remoteTask, remote_prof_cmd, remote_close_cmd)
 
     log.info("done")
 
@@ -233,12 +252,14 @@ def main():
 
     log.info("start logging \"%s (%d)\"" % (args.procname, args.pid))
 
+    data_filename = "mprof_%s.csv" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
     if not args.enable_remote:
-        logging(args.procname, args.pid, args.data_dir)
+        logging(args.procname, args.pid, args.data_dir, data_filename)
 
     else:
         log.info("connecting remote host \"%s\"" % args.remote_host)
-        remote(args.procname, args.pid, args.data_dir, args.remote_host, args.remote_dir)
+        remote(args.procname, args.pid, args.data_dir, data_filename, args.remote_host, args.remote_dir)
 
 
 if __name__ == "__main__":
