@@ -12,24 +12,110 @@ import time
 import datetime
 import csv
 import socket
+from collections import deque
 from fabric.api import run, local, execute, env
 from fabric.contrib import project
 
 
+class Stack():
+    def __init__(self, iterable=[], maxlen=0):
+        self.maxlen = maxlen
+        self.container = deque(iterable, maxlen=maxlen)
+        self.penultimate_storage = None
 
-# 結果を5件くらい保存しておく
+    def __str__(self):
+        ret = "["
+        size = self.size()
+
+        for i in xrange(size):
+            ret += repr(self.container[i])
+            if i != size - 1:
+                ret += ","
+
+        ret += "]"
+
+        return ret
+
+    def __repr__(self):
+        return self.__str__()
+
+    def push(self, value):
+        self.penultimate_storage = self.last()
+        self.container.append(value)
+
+    def pop(self):
+        try:
+            return self.container.pop()
+        except IndexError:
+            return None
+
+    def clear(self):
+        self.container.clear()
+
+    def size(self):
+        return len(self.container)
+
+    def get(self, index):
+        try:
+            return self.container[index]
+        except IndexError:
+            return None
+
+    def first(self):
+        return self.get(0)
+
+    def last(self):
+        return self.get(-1)
+
+    def penultimate(self):
+        if self.penultimate_storage:
+            return self.penultimate_storage
+        else:
+            return self.get(-2)
+
+
+# 結果を10件くらい保存しておく
 class MemoryProfileDataContainer():
     def __init__(self, data_dir, data_filename="", to_csv=False):
         self.data_dir = data_dir
         self.data_filename = data_filename
         self.to_csv = to_csv
 
-        self.container = []
+        self.container = Stack(maxlen=10)
 
         self.setDataPath()
 
     def __repr__(self):
-        pass
+        if self.container.size() == 0:
+            return ""
+
+        def z(a, b):
+            if len(a) >= len(b):
+                return a
+            else:
+                return b
+
+        ret = ""
+        last_items = self.container.last()
+        label_max_size = len(reduce(
+            lambda a, b: a if len(a) >= len(b) else b,
+            [ item["label"] for item in last_items ]))
+
+        for item in last_items:
+            if isinstance(item["value"], int):
+                fmt = "%s %-" + str(label_max_size) + "s %d\n"
+            else:
+                fmt = "%s %-" + str(label_max_size) + "s %s\n"
+
+            ret += fmt % (
+                datetime.datetime.fromtimestamp(item["time"]).isoformat(),
+                item["label"],
+                item["value"])
+
+        return ret
+
+    def __str__(self):
+        return self.__repr__()
 
     def setDataPath(self):
         if not self.data_filename:
@@ -47,8 +133,8 @@ class MemoryProfileDataContainer():
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
-    def append(self, data):
-        pass
+    def push(self, data):
+        self.container.push(data)
 
     def diff(self, prevdata):
         pass
@@ -97,7 +183,8 @@ class MemoryProfileThread(mp.Process):
                 if pattern.search(cmdline):
                     target_pids.append(int(pid))
 
-            except IOError: # proc has already terminated
+            except IOError:
+                # proc has already terminated
                 continue
 
         # to remove pid myself
@@ -220,8 +307,11 @@ class MemoryProfileThread(mp.Process):
 
             data_all = data_ident + data_system + data_proc
 
-            self.mpdc.append(data_all)
+            self.mpdc.push(data_all)
             self.mpdc.serialize()
+
+            with self.lock:
+                sys.stdout.write(str(self.mpdc) + "\n")
 
             time.sleep(self.interval)
 
@@ -232,7 +322,7 @@ class MemoryProfileThread(mp.Process):
             return
 
 
-def logging(procname, pid, data_dir, data_filename):
+def logging(procname, pid, data_dir, data_filename, to_csv):
     lock = mp.Lock()
 
     t = MemoryProfileThread(
@@ -240,7 +330,8 @@ def logging(procname, pid, data_dir, data_filename):
         procname=procname,
         pid=pid,
         data_dir=data_dir,
-        data_filename=data_filename)
+        data_filename=data_filename,
+        to_csv=to_csv)
 
     t.start()
 
@@ -270,7 +361,8 @@ def remote(
         remote_host,
         remote_dir,
         remote_user="",
-        remote_password=""
+        remote_password="",
+        to_csv=False
 ):
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
@@ -280,13 +372,18 @@ def remote(
 
     cwd, project_exec = os.path.split(os.path.abspath(sys.argv[0]))
 
-    remote_prof_cmd = "python %s/%s/%s -c %s -p %d -d %s" % (
+    to_csv_arg = ""
+    if to_csv:
+        to_csv_arg = "-C"
+
+    remote_prof_cmd = "python %s/%s/%s -c %s -p %d -d %s %s" % (
         remote_dir,
         cwd.split("/")[-1],
         project_exec,
         procname,
         pid,
-        data_dir)
+        data_dir,
+        to_csv_arg)
 
     remote_close_cmd = "mkdir -p %s && rsync -av %s:%s/%s %s" % (
         data_dir,
@@ -332,7 +429,7 @@ def main():
     data_filename = "mprof_%s.csv" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     if not args.enable_remote:
-        logging(args.procname, args.pid, args.data_dir, data_filename)
+        logging(args.procname, args.pid, args.data_dir, data_filename, args.to_csv)
 
     else:
         log.info("connecting remote host \"%s\"" % args.remote_host)
@@ -344,7 +441,8 @@ def main():
             args.remote_host,
             args.remote_dir,
             args.remote_user,
-            args.remote_password)
+            args.remote_password,
+            args.to_csv)
 
 
 if __name__ == "__main__":
