@@ -26,7 +26,7 @@ class Stack():
         self.penultimate_storage = None
 
     def __str__(self):
-        ret = "["
+        ret = "Stack("
         size = self.size()
 
         for i in xrange(size):
@@ -34,7 +34,7 @@ class Stack():
             if i != size - 1:
                 ret += ","
 
-        ret += "]"
+        ret += ")"
 
         return ret
 
@@ -98,20 +98,29 @@ class MemoryProfileDataContainer():
 
         ret = ""
         last_items = self.container.last()
+        penultimate_items = self.container.penultimate()
+
+        diff_items = self.diff(last_items, penultimate_items)
 
         if self.label_max_size == 0:
             self.calcLabelMaxSize(last_items)
 
         for item in last_items:
+            diff_str = ""
+            if item["label"] in diff_items:
+                if diff_items[ item["label"] ] != 0:
+                    diff_str = " (%d)" % diff_items[ item["label"] ]
+
             if isinstance(item["value"], int):
-                fmt = "%s %-" + str(self.label_max_size) + "s %d\n"
+                fmt = "%s %-" + str(self.label_max_size) + "s %d %s\n"
             else:
-                fmt = "%s %-" + str(self.label_max_size) + "s %s\n"
+                fmt = "%s %-" + str(self.label_max_size) + "s %s %s\n"
 
             ret += fmt % (
                 datetime.datetime.fromtimestamp(item["time"]).isoformat(),
                 item["label"],
-                item["value"])
+                item["value"],
+                diff_str)
 
         return ret
 
@@ -146,8 +155,33 @@ class MemoryProfileDataContainer():
     def push(self, data):
         self.container.push(data)
 
-    def diff(self, prevdata):
-        pass
+    def diff(self, new, old):
+        if not new or not old:
+            return {}
+
+        if len(new) != len(old):
+            return {}
+
+        ret = {}
+        for i in xrange(len(new)):
+            new_value = new[i]["value"]
+            old_value = old[i]["value"]
+            label = new[i]["label"]
+
+            if not ( \
+                isinstance(new_value, int) \
+                or isinstance(new_value, float) \
+                or isinstance(new_value, long) \
+                or isinstance(old_value, int) \
+                or isinstance(old_value, float) \
+                or isinstance(old_value, long) \
+            ):
+                continue
+
+            diff_value = new_value - old_value
+            ret[label] = diff_value
+
+        return ret
 
     def serialize(self):
         if not self.to_csv:
