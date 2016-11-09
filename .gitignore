@@ -3,6 +3,6 @@
 *.swp
 ~*
 
+*.json
 *.csv
 *.out
-

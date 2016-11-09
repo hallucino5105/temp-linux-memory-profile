@@ -80,20 +80,19 @@ class MemoryProfileDataContainer():
         self.data_dir = data_dir
         self.data_filename = data_filename
         self.to_csv = to_csv
+        print self.data_filename
 
         self.container = Stack(maxlen=10)
 
         self.setDataPath()
+        self.setupSerializeFile()
+
+    def __del__(self):
+        self.fs.close()
 
     def __repr__(self):
         if self.container.size() == 0:
             return ""
-
-        def z(a, b):
-            if len(a) >= len(b):
-                return a
-            else:
-                return b
 
         ret = ""
         last_items = self.container.last()
@@ -133,6 +132,10 @@ class MemoryProfileDataContainer():
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
+    def setupSerializeFile(self):
+        self.fs = open(self.data_path, "w")
+        self.init_json = False
+
     def push(self, data):
         self.container.push(data)
 
@@ -140,7 +143,23 @@ class MemoryProfileDataContainer():
         pass
 
     def serialize(self):
-        pass
+        if not self.to_csv:
+            self.serialize_json()
+        else:
+            self.serialize_csv()
+
+    def serialize_json(self):
+        if not self.init_json:
+            pass
+
+    def serialize_csv(self):
+        if not hasattr(self, "csv_writer"):
+            self.csv_writer = csv.writer(self.fs, lineterminator="\n")
+
+        for item in self.container.last():
+            self.csv_writer.writerow([ item["time"], item["label"], item["value"] ])
+
+        self.fs.flush()
 
     #def outputData(self, fs, writer, data):
     #    with open(self.data_path, "w") as fs:
@@ -322,16 +341,22 @@ class MemoryProfileThread(mp.Process):
             return
 
 
-def logging(procname, pid, data_dir, data_filename, to_csv):
+def logging(
+        procname,
+        pid,
+        data_dir,
+        data_filename,
+        to_csv
+):
     lock = mp.Lock()
 
     t = MemoryProfileThread(
-        lock,
-        procname=procname,
-        pid=pid,
-        data_dir=data_dir,
-        data_filename=data_filename,
-        to_csv=to_csv)
+        lock          = lock,
+        procname      = procname,
+        pid           = pid,
+        data_dir      = data_dir,
+        data_filename = data_filename,
+        to_csv        = to_csv)
 
     t.start()
 
@@ -344,26 +369,25 @@ def logging(procname, pid, data_dir, data_filename, to_csv):
             break
 
 
-def remoteTask(remote_prof_cmd, remote_close_cmd):
-    log.info("remoteTask")
-
-    try:
-        run(remote_prof_cmd)
-    finally:
-        local(remote_close_cmd)
-
-
 def remote(
         procname,
         pid,
         data_dir,
         data_filename,
+        to_csv,
         remote_host,
         remote_dir,
         remote_user="",
-        remote_password="",
-        to_csv=False
+        remote_password=""
 ):
+    def remoteTask(remote_prof_cmd, remote_close_cmd):
+        log.info("remoteTask")
+
+        try:
+            run(remote_prof_cmd)
+        finally:
+            local(remote_close_cmd)
+
     env.use_ssh_config = True
     env.hosts = [ remote_host ]
     env.host_string = remote_host
@@ -409,12 +433,12 @@ def getarg():
     parser.add_argument("-c", "--procname", type=str, default=None, help="process name")
     parser.add_argument("-p", "--pid", type=int, default=-1, help="process id")
     parser.add_argument("-d", "--data-dir", type=str, default="mprof_data", help="data dir")
+    parser.add_argument("-C", "--to-csv", action="store_true", help="output csv format")
     parser.add_argument("-r", "--enable-remote", action="store_true", help="enable remote")
     parser.add_argument("-h", "--remote-host", type=str, help="remote host")
     parser.add_argument("-t", "--remote-dir", type=str, default="~", help="remote dir")
     parser.add_argument("-U", "--remote-user", type=str, help="remote user")
     parser.add_argument("-P", "--remote-password", type=str, help="remote password")
-    parser.add_argument("-C", "--to-csv", action="store_true", help="output csv format")
     parser.add_argument("--help", action="help")
 
     args = parser.parse_args()
@@ -426,23 +450,33 @@ def main():
 
     log.info("start logging \"%s (%d)\"" % (args.procname, args.pid))
 
-    data_filename = "mprof_%s.csv" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    if not args.to_csv:
+        ext = "json"
+    else:
+        ext = "csv"
+
+    data_filename = "mprof_%s.%s" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), ext)
 
     if not args.enable_remote:
-        logging(args.procname, args.pid, args.data_dir, data_filename, args.to_csv)
+        logging(
+            procname      = args.procname,
+            pid           = args.pid,
+            data_dir      = args.data_dir,
+            data_filename = data_filename,
+            to_csv        = args.to_csv)
 
     else:
         log.info("connecting remote host \"%s\"" % args.remote_host)
         remote(
-            args.procname,
-            args.pid,
-            args.data_dir,
-            data_filename,
-            args.remote_host,
-            args.remote_dir,
-            args.remote_user,
-            args.remote_password,
-            args.to_csv)
+            procname        = args.procname,
+            pid             = args.pid,
+            data_dir        = args.data_dir,
+            data_filename   = data_filename,
+            to_csv          = args.to_csv,
+            remote_host     = args.remote_host,
+            remote_dir      = args.remote_dir,
+            remote_user     = args.remote_user,
+            remote_password = args.remote_password)
 
 
 if __name__ == "__main__":
