@@ -10,8 +10,10 @@ import multiprocessing as mp
 import re
 import time
 import datetime
+import json
 import csv
 import socket
+import textwrap
 from collections import deque
 from fabric.api import run, local, execute, env
 from fabric.contrib import project
@@ -80,9 +82,9 @@ class MemoryProfileDataContainer():
         self.data_dir = data_dir
         self.data_filename = data_filename
         self.to_csv = to_csv
-        print self.data_filename
 
         self.container = Stack(maxlen=10)
+        self.label_max_size = 0
 
         self.setDataPath()
         self.setupSerializeFile()
@@ -96,15 +98,15 @@ class MemoryProfileDataContainer():
 
         ret = ""
         last_items = self.container.last()
-        label_max_size = len(reduce(
-            lambda a, b: a if len(a) >= len(b) else b,
-            [ item["label"] for item in last_items ]))
+
+        if self.label_max_size == 0:
+            self.calcLabelMaxSize(last_items)
 
         for item in last_items:
             if isinstance(item["value"], int):
-                fmt = "%s %-" + str(label_max_size) + "s %d\n"
+                fmt = "%s %-" + str(self.label_max_size) + "s %d\n"
             else:
-                fmt = "%s %-" + str(label_max_size) + "s %s\n"
+                fmt = "%s %-" + str(self.label_max_size) + "s %s\n"
 
             ret += fmt % (
                 datetime.datetime.fromtimestamp(item["time"]).isoformat(),
@@ -133,8 +135,13 @@ class MemoryProfileDataContainer():
             os.makedirs(self.data_dir)
 
     def setupSerializeFile(self):
-        self.fs = open(self.data_path, "w")
+        self.fs = open(self.data_path, "w+b")
         self.init_json = False
+
+    def calcLabelMaxSize(self, sample_items):
+        self.label_max_size = len(reduce(
+            lambda a, b: a if len(a) >= len(b) else b,
+            [ item["label"] for item in sample_items ]))
 
     def push(self, data):
         self.container.push(data)
@@ -149,8 +156,67 @@ class MemoryProfileDataContainer():
             self.serialize_csv()
 
     def serialize_json(self):
+        first_line = False
+
+        items = self.container.last()
+        data = { item["label"]: item["value"] for item in items }
+
+        timestamp = items[0]["time"]
+        pid = data["PID"]
+        procname = data["Procname"]
+        hostname = data["Hostname"]
+
         if not self.init_json:
-            pass
+            out = textwrap.dedent("""
+                {
+                  "pid": %d,
+                  "processName": "%s",
+                  "hostName": "%s",
+                  "meminfo": [
+                  ]
+                }
+            """ % (pid, procname, hostname)).strip() + "\n"
+
+            self.fs.writelines(out)
+            self.fs.flush()
+
+            first_line = True
+            self.init_json = True
+
+        out = {
+            "timestamp"     : timestamp,
+            "systemMemory"  : {
+                "memTotal"     : data["MemTotal"],
+                "memAvailable" : data["MemFree"],
+                "swapTotal"    : data["SwapTotal"],
+                "swapFree"     : data["SwapFree"]
+            },
+            "processMemory" : {
+                "vmPeak" : data["VmPeak"],
+                "vmSize" : data["VmSize"],
+                "vmLck"  : data["VmLck"],
+                "vmPin"  : data["VmPin"],
+                "vmHWM"  : data["VmHWM"],
+                "vmRSS"  : data["VmRSS"],
+                "vmData" : data["VmData"],
+                "vmStk"  : data["VmStk"],
+                "vmExe"  : data["VmExe"],
+                "vmLib"  : data["VmLib"],
+                "vmPTE"  : data["VmPTE"],
+                "vmSwap" : data["VmSwap"]
+            }
+        }
+
+        comma = ","
+        if first_line:
+            comma = ""
+
+        tail = "\n  ]\n}\n"
+        out_str = "%s\n    %s%s" % (comma, json.dumps(out), tail)
+
+        self.fs.seek(-len(tail), os.SEEK_END)
+        self.fs.write(out_str)
+        self.fs.flush()
 
     def serialize_csv(self):
         if not hasattr(self, "csv_writer"):
@@ -160,21 +226,6 @@ class MemoryProfileDataContainer():
             self.csv_writer.writerow([ item["time"], item["label"], item["value"] ])
 
         self.fs.flush()
-
-    #def outputData(self, fs, writer, data):
-    #    with open(self.data_path, "w") as fs:
-    #        writer = csv.writer(fs, lineterminator="\n")
-
-    #    for item in data:
-    #        with self.lock:
-    #            if isinstance(item["value"], int):
-    #                fmt = "%d %s %d\n"
-    #            else:
-    #                fmt = "%d %s %s\n"
-    #            sys.stdout.write(fmt % (item["time"], item["label"], item["value"]))
-
-    #        writer.writerow([ item["time"], item["label"], item["value"] ])
-    #        fs.flush()
 
 
 class MemoryProfileThread(mp.Process):
@@ -300,7 +351,7 @@ class MemoryProfileThread(mp.Process):
                 "value": self.tpid
             }, {
                 "time": unixtime,
-                "label": "ProcName",
+                "label": "Procname",
                 "value": self.procname,
             }, {
                 "time": unixtime,
