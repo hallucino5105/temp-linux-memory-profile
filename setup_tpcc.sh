@@ -8,7 +8,6 @@ mysql_host=192.168.5.51
 mysql_db=tpcc
 
 
-
 mysql -u$mysql_user -p$mysql_pass -h$mysql_host -e "drop database $mysql_db"
 mysql -u$mysql_user -p$mysql_pass -h$mysql_host -e "create database $mysql_db"
 
